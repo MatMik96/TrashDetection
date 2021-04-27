@@ -2,7 +2,7 @@
 #include <iostream>
 #include <librealsense2/rs.hpp>
 #include <opencv2/opencv.hpp>
-
+//#include <zbar.h>
 
 // Struct to store a set of frames from realsense
 struct Frame {
@@ -14,6 +14,71 @@ struct Frame {
     cv::Mat matImage;
     uint32_t count = 0;
 };
+
+// Struct to store the scanned QR codes
+struct Object : public cv::_InputArray {
+    std::string data;
+    std::vector<cv::Point> location;
+    cv::Point center;
+};
+
+// Struct used to store information about each contour
+struct features {
+    int contourIndex;
+    int area;
+};
+
+// Add names for QR codes here if you add more QR codes to scene
+const std::vector<std::string> qrCustomNames = { "ID_1", "ID_2", "ID_3", "ID_4" };
+
+// ROS service client
+//ros::ServiceClient client;
+
+
+/*
+// Find and decode barcodes and QR codes
+void decode(cv::Mat& im, std::vector<Object>& decodedObjects) {
+
+    // Create zbar scanner
+    zbar::ImageScanner scanner;
+
+    // Configure scanner
+    scanner.set_config(zbar::ZBAR_NONE, zbar::ZBAR_CFG_ENABLE, 1);
+
+    // Convert image to grayscale
+    cv::Mat imGray;
+    cvtColor(im, imGray, cv::
+        COLOR_BGR2GRAY);
+
+    // Wrap image data in a zbar image
+    zbar::Image image(im.cols, im.rows, "GREY", (uchar*)imGray.data, im.cols * im.rows);
+
+    // Scan the image for barcodes and QRCodes
+    int n = scanner.scan(image);
+
+    // Print results
+    for (zbar::Image::SymbolIterator symbol = image.symbol_begin(); symbol != image.symbol_end(); ++symbol) {
+        Object obj;
+        obj.data = symbol->get_data();
+
+        // Obtain location
+        for (int i = 0; i < symbol->get_location_size(); i++) {
+            obj.location.emplace_back(symbol->get_location_x(i), symbol->get_location_y(i));
+        }
+
+        // calculate center coords
+        int sumX = 0, sumY = 0;
+        for (auto& i : obj.location) {
+            sumX += i.x;
+            sumY += i.y;
+        }
+        obj.center.x = sumX / obj.location.size();
+        obj.center.y = sumY / obj.location.size();
+
+        decodedObjects.push_back(obj);
+
+    }
+}*/
 
 // Get a frame from realsense. Purpose of this function is to group the image collecting here.
 void retrieveFrame(const rs2::pipeline& pipe, Frame* frame) {
@@ -31,15 +96,8 @@ void retrieveFrame(const rs2::pipeline& pipe, Frame* frame) {
 }
 
 
-// Struct used to store information about each contour
-struct features
-{
-    int contourIndex;
-    int area; 
-};
 
-
-void FindGraspingPoint(cv::Mat1b bin) { //Receives grayscale image   
+void FindGraspingPoint(cv::Mat1b bin, cv::Mat hMatrix) { //Receives grayscale image   
 
     // Find contour
     std::vector<std::vector<cv::Point>> contours;
@@ -79,8 +137,18 @@ void FindGraspingPoint(cv::Mat1b bin) { //Receives grayscale image
         cv::minMaxLoc(dt, nullptr, &max_val, nullptr, &max_loc);
 
         cv::circle(out, max_loc, max_val, cv::Scalar(0, 255, 0), 2);
+
+        //lego_throw::camera camSrv;
+        //camSrv.request.x = point.x;
+        //camSrv.request.y = point.y;
+        //camSrv.request.z = 0.05;
+        //camSrv.request.data = max_loc;
+        //camSrv.request.time = time_stamp;
+      
+        //if (client.call(camSrv)) printf("Response status: %i\n", camSrv.response.status);
         }
         std::cout<<featVec[i].area <<std::endl;
+
     }
 
     cv::imshow("Biggest Circles ", out);
@@ -88,13 +156,69 @@ void FindGraspingPoint(cv::Mat1b bin) { //Receives grayscale image
 }
 
 
+
+cv::Mat doHomography(const std::vector<Object> objects, cv::Mat* colorImage) {
+    // Find homography matrix needs 8 points.
+    std::vector<cv::Point2f> surfaceQR(4);     // Four corners of the real world plane
+    std::vector<cv::Point2f> cameraQR(4);      // Four corners of the image plane
+
+
+    // The QR codes that is scanned from zBar does not come ordered.
+    // Thus we want to sort the corresponding points in SurfaceQR and cameraQR such that corresponding points is at the same index.
+    int amountQRCornersFound = 0;
+
+    //ROBOT TABLE POINTS
+    for (int i = 0; i < objects.size(); ++i) {
+        if (objects[i].data == "00") {
+            surfaceQR[amountQRCornersFound] = cv::Point2f(0, 0);
+            cameraQR[amountQRCornersFound] = objects[i].center;
+            amountQRCornersFound++;
+        }
+        if (objects[i].data == "01") {
+            surfaceQR[amountQRCornersFound] = cv::Point2f(72.4, 0);
+            cameraQR[amountQRCornersFound] = objects[i].center;
+            amountQRCornersFound++;
+        }
+        if (objects[i].data == "02") {
+            surfaceQR[amountQRCornersFound] = cv::Point2f(0, 69.7);
+            cameraQR[amountQRCornersFound] = objects[i].center;
+            amountQRCornersFound++;
+        }
+        if (objects[i].data == "03") {
+            surfaceQR[amountQRCornersFound] = cv::Point2f(72.4, 69.7);
+            cameraQR[amountQRCornersFound] = objects[i].center;
+            amountQRCornersFound++;
+        }
+    }
+
+    if (amountQRCornersFound != 4)
+        return;
+
+    //calculate Homography matrix from 4 sets of corresponding points
+    cv::Mat hMatrix = findHomography(cameraQR, surfaceQR);
+    return hMatrix;
+
+    //cv::Mat homographyImage;
+    //warpPerspective(colorImage, homographyImage, hMatrix, cv::Size(800, 870));
+}
+
+
+
 int main()
 {
     // -- REALSENSE SETUP --
-   // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
-    // Start streaming from camera with default recommended configuration
-    pipe.start();
+    pipe.start(); 
+
+    // --- ROS STUFF ---
+    //ros::init(argc, argv, "realsenseVision");
+    //ros::NodeHandle node_handle;
+
+    // Creating the client
+    //client = node_handle.serviceClient<lego_throw::camera>("camera");
+    //client.waitForExistence();
+
+    std::vector<Object> decodedObjects;
 
     Frame frame;
     // Declare depth colorizer for pretty visualization of depth data
@@ -111,15 +235,21 @@ int main()
         //Here we make the thresholds for the three colors
         cv::inRange(frame.matImage, cv::Scalar(0, 80, 0), cv::Scalar(90, 170, 90), detectGreen);
         cv::imshow("Green", detectGreen);
-        //We create a structuring element with the shape of a ellipse as most of the objects have circular shapes
+
         cv::Mat elem = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
 
-        //a morphology function to perform a CLOSE operaiton. This is a compound function 
-        //that will first perform dilation followed by erosion
         cv::morphologyEx(detectGreen, detectGreen, cv::MORPH_OPEN, elem);
-       
-        FindGraspingPoint(detectGreen);
-        
+        //decode(frame.matImage, decodedObjects);  
+        cv::Mat hMatrix;
+        if (decodedObjects.size() > 3) {                                         
+           hMatrix = doHomography(decodedObjects, &frame.matImage);
+
+           if (!hMatrix.empty()) {
+               FindGraspingPoint(detectGreen, hMatrix);
+           }
+        }  
+
+        if (cv::waitKey(25) == 27) break;  // If ESC is pushed then break loop
     }
 }
 
