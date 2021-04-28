@@ -231,12 +231,18 @@ int main()
     while (cv::waitKey(1) < 0)
     {
         retrieveFrame(pipe, &frame);     // Get a set of frames from realsense Camera
-        cvtColor(frame.matImage, frame.matImage, cv::COLOR_BGR2RGB);      // Convert to RGB to display correct colors
-        cv::Mat detectGreen = frame.matImage;
+         cvtColor(frame.matImage, frame.matImage, cv::COLOR_BGR2RGB);      // Convert to RGB to display correct colors
+       // cv::Mat detectGreen = frame.matImage;
+        cv::Mat detectRed, detectBlue, detectGreen = frame.matImage;
 
-        //Here we make the thresholds for the three colors
-        cv::inRange(frame.matImage, cv::Scalar(0, 80, 0), cv::Scalar(90, 170, 90), detectGreen);
+       // Here we make the thresholds for the three colors
+        cv::inRange(frame.matImage, cv::Scalar(0, 0, 130), cv::Scalar(50, 50, 170), detectRed); //Rød
+        cv::inRange(frame.matImage, cv::Scalar(80, 50, 10), cv::Scalar(100, 70, 25), detectBlue); //Blå
+        cv::inRange(frame.matImage, cv::Scalar(40, 50, 15), cv::Scalar(60, 70, 40), detectGreen); //Grøn
+        cv::imshow("Red", detectRed);
+        cv::imshow("Blue", detectBlue);
         cv::imshow("Green", detectGreen);
+       
 
         cv::Mat elem = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
 
