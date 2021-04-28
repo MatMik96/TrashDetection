@@ -191,8 +191,10 @@ cv::Mat doHomography(const std::vector<Object> objects, cv::Mat* colorImage) {
         }
     }
 
-    if (amountQRCornersFound != 4)
-        return;
+    if (amountQRCornersFound != 4){
+        cv::Mat empty;
+        return empty;
+    }
 
     //calculate Homography matrix from 4 sets of corresponding points
     cv::Mat hMatrix = findHomography(cameraQR, surfaceQR);
